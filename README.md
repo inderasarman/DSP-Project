@@ -207,7 +207,7 @@ pip install librosa scikit-learn scipy numpy pandas tqdm joblib soundfile
 
 ### Instructions
 
-1. Open `CEG3004_Project_Colab_inderav4.ipynb` in Google Colab.
+1. Open `Pr_26_notebook.ipynb` in Google Colab.
 2. Download the ESC-50 dataset ZIP from the link in the notebook and place it at the path specified in Cell 3.
 3. Run all cells top to bottom using **Runtime → Run All**.
 4. After training completes, `Pr_26_model.joblib` and `Pr_26_predictions.csv` are auto-downloaded.
@@ -219,7 +219,7 @@ pip install librosa scikit-learn scipy numpy pandas tqdm joblib soundfile
 ```
 .
 ├── README.md
-├── CEG3004_Project_Colab_inderav4.ipynb   # Main Colab notebook (source code)
+├── Pr_26_notebook.ipynb                    # Main Colab notebook (source code)
 ├── Pr_26_model.joblib                      # Trained model file
 └── Pr_26_predictions.csv                   # Submission predictions (1200 rows)
 ```
