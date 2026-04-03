@@ -37,7 +37,7 @@ flowchart TD
     end
 
     I --> AUG
-    AUG --> M[Training Set\n8,000 samples]
+    AUG --> M[Training Set\n4,800 samples · 613 dims]
 
     subgraph MODEL ["🧠 Model Pipeline"]
         N[RobustScaler] --> O
