@@ -55,9 +55,9 @@ flowchart TD
 
 | Split | Accuracy | Macro-F1 |
 |---|---|---|
-| Validation (20% holdout, clean audio) | **0.87** | **0.886** |
+| Validation (20% holdout, clean audio) | **0.88** | **0.880** |
 
-> **Note on test conditions:** The validation set uses clean audio only, so 0.87 represents an upper bound. The actual submission score is weighted 50% clean + 25% noisy + 25% bandlimited. Design decisions made specifically for robustness under the distorted conditions are described in the DSP rationale sections below.
+> **Note on test conditions:** The validation set uses clean audio only, so 0.88 represents an upper bound. The actual submission score is weighted 50% clean + 25% noisy + 25% bandlimited. Design decisions made specifically for robustness under the distorted conditions are described in the DSP rationale sections below.
 
 ---
 
@@ -108,7 +108,7 @@ Features are extracted in three groups, producing a **613-dimensional feature ve
 
 ### 3. Data Augmentation
 
-Each training clip is augmented 3 times before training, producing **4× the original training data (8,000 samples)**:
+Each training clip is augmented 3 times before training, producing **4× the original training data — augmented feature matrix shape: (4,800, 613)**:
 
 | Augmentation | Implementation | Rationale |
 |---|---|---|
@@ -144,7 +144,7 @@ RobustScaler → HistGradientBoostingClassifier(max_iter=300, lr=0.05, max_depth
 | v1 | Trim + HPF + peak norm | MFCC-40 + deltas | RandomForest | No | 0.61 | No augmentation; model undertrained on small dataset |
 | v2 | Trim + HPF + peak norm | MFCC-40 + deltas + log-mel + spectral | Stacking (ET + XGB + SVC) | Yes (3×) | 0.54 | Severe class bias (`rain` predicted 134/1200 times); PCA + SMOTE distorted feature space |
 | v3 (ablation) | Trim + HPF + peak norm | MFCC-40 + CMVN + deltas + log-mel + spectral | HistGradientBoostingClassifier | No | 0.72 | Same as final but without augmentation — confirms augmentation contribution |
-| **v3 Final** | Trim + HPF + peak norm | MFCC-40 + CMVN + deltas + log-mel + spectral | HistGradientBoostingClassifier | Yes (3×) | **0.886** | Final model; full pipeline with augmentation |
+| **v3 Final** | Trim + HPF + peak norm | MFCC-40 + CMVN + deltas + log-mel + spectral | HistGradientBoostingClassifier | Yes (3×) | **0.880** | Final model; full pipeline with augmentation |
 
 **Validation Macro-F1 progression:**
 
@@ -153,28 +153,43 @@ xychart-beta
     title "Macro-F1 Score by Experiment Run"
     x-axis ["Baseline", "v1 (RF, no aug)", "v2 (Stacking)", "v3 (no aug)", "v3 Final"]
     y-axis "Macro-F1" 0 --> 1
-    bar [0.40, 0.61, 0.54, 0.72, 0.886]
+    bar [0.40, 0.61, 0.54, 0.72, 0.880]
 ```
 
 **Key observations:**
 - The jump from v1 (0.61) to v3-no-aug (0.72) shows that CMVN and richer spectral features contribute ~0.11 Macro-F1 independently of augmentation.
-- The jump from v3-no-aug (0.72) to v3-Final (0.886) isolates augmentation as the single largest contributor (+0.166 Macro-F1).
+- The jump from v3-no-aug (0.72) to v3-Final (0.880) isolates augmentation as the single largest contributor (+0.160 Macro-F1).
 - The Stacking Ensemble (v2, 0.54) underperformed despite being a more complex model — class prediction bias caused by SMOTE oversampling on a PCA-compressed feature space. This confirms that simpler, well-tuned models with proper class balancing outperform overengineered pipelines on this dataset.
 
 ---
 
 ## Error Analysis
 
-Validation Macro-F1 was **0.886**, but performance varied across classes. Key observations from the per-class classification report:
+Validation Macro-F1 was **0.880** (accuracy 0.88). Performance varied across the 50 classes. Below are the weakest and strongest performers from the classification report:
 
-| Class | Precision | Recall | F1 | Observation |
+**Lowest F1 classes:**
+
+| Class | Precision | Recall | F1 | Root cause |
 |---|---|---|---|---|
-| water_drops | 0.93 | 0.68 | 0.79 | Low recall — model misses 32% of water_drops clips, likely confusing them with rain |
-| wind | 0.90 | 0.90 | 0.90 | Strong — distinct broadband spectral profile well captured by spectral bandwidth feature |
+| door_wood_creaks | 0.85 | 0.58 | 0.69 | Low recall — creaking sounds share spectral overlap with door_wood_knock; temporal irregularity makes it hard to pool |
+| keyboard_typing | 0.65 | 0.79 | 0.71 | Low precision — confused with mouse_click and other rhythmic click sounds; both have similar ZCR and onset flux profiles |
+| laughing | 0.92 | 0.63 | 0.75 | Low recall — human vocalisations (laughing, crying_baby, sneezing) are spectrally similar; MFCC features struggle to separate them |
+| engine | 0.93 | 0.65 | 0.76 | Low recall — engine sounds overlap with helicopter and vacuum_cleaner in the low-frequency spectral band that our HPF preserves |
+| water_drops | 0.88 | 0.74 | 0.80 | Low recall — sparse transient events in a 5-second clip; max pooling partially captures peaks but silent gaps dilute the feature vector |
 
-**Primary confusion — water_drops vs. rain:** Both classes share a broadband noise profile with energy distributed across the frequency spectrum. The key distinguishing feature is the temporal structure: water_drops have sharp, rhythmic transient spikes while rain is continuous. Our robust pooling (max and median) partially captures this, but the 5-second clip length means sparse water drop events can be obscured by silence, reducing recall. A potential improvement would be to add a higher percentile stat (e.g., 95th) to better capture isolated transient peaks.
+**Highest F1 classes:**
 
-**Robustness under distorted conditions:** ZCR and onset flux are the features least affected by additive noise and bandlimiting — ZCR is a time-domain feature immune to frequency filtering, and onset flux measures energy change rather than absolute level. These features are expected to maintain discriminative power in the noisy and bandlimited submission sets. CMVN on MFCCs further normalises channel-level noise. The augmentation with Gaussian noise directly trains the model to be invariant to the noise condition tested in the submission.
+| Class | F1 | Reason |
+|---|---|---|
+| frog | 0.97 | Highly distinctive periodic call pattern, unique spectral shape |
+| siren | 0.97 | Strong frequency sweep signature, captured well by spectral rolloff and centroid |
+| toilet_flush | 0.97 | Unique broadband noise burst with clear onset — onset flux captures this well |
+
+**Key DSP observations:**
+
+**door_wood_creaks vs. door_wood_knock** are the hardest pair to separate. Both are transient sounds in the same frequency range. The distinction is that creaks are lower-energy and irregular, while knocks are sharp and percussive. Our onset flux feature should theoretically help here, but the low support (19 clips) means the model has seen too few examples to learn this boundary reliably.
+
+**Robustness under distorted conditions:** ZCR and onset flux are the features least affected by additive noise and bandlimiting — ZCR is a time-domain feature immune to frequency filtering, and onset flux measures energy change rather than absolute amplitude. CMVN on MFCCs normalises channel-level noise. The Gaussian noise augmentation directly trains the model to be invariant to the noisy submission condition.
 
 ---
 
@@ -193,7 +208,7 @@ Validation Macro-F1 was **0.886**, but performance varied across classes. Key ob
 | Data augmentation | Yes (noise, shift, pitch) | No |
 | Model | HistGradientBoostingClassifier | LogisticRegression |
 | Class imbalance handling | class_weight='balanced' | class_weight='balanced' |
-| Validation Macro-F1 | **0.886** | ~0.65 |
+| Validation Macro-F1 | **0.880** | ~0.65 |
 
 ---
 
