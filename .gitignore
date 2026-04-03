@@ -1,0 +1,17 @@
+# Ignore archive and updated folders
+archive/
+updated/
+
+# Large model files
+*.h5
+*.joblib
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
