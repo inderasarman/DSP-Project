@@ -8,6 +8,49 @@ This project designs a robust audio classification pipeline for Environmental So
 
 ---
 
+## Pipeline Overview
+
+```mermaid
+flowchart TD
+    A[🎵 Raw Audio WAV\n16kHz mono] --> B
+
+    subgraph PRE ["⚙️ Preprocessing"]
+        B[Silence Trim\ntop_db=25] --> C
+        C[High-Pass Butterworth Filter\n4th order · 100 Hz cutoff · zero-phase] --> D
+        D[Peak Normalization\nscale to &#91;-1, 1&#93;] --> E
+        E[Pad / Truncate\nfixed 5s · 80,000 samples]
+    end
+
+    subgraph FEAT ["🔬 Feature Extraction  →  243-dim vector"]
+        F["MFCC × 40 + CMVN\n+ delta + delta-delta\nrobust pool: mean·std·max·median\n→ 480 dims"]
+        G["Log-Mel Spectrogram\nn_mels=64 · log power\npool: mean·std\n→ 128 dims"]
+        H["Spectral Features\ncentroid · bandwidth · rolloff\nonset flux · ZCR\n→ 5 dims"]
+    end
+
+    E --> F & G & H
+    F & G & H --> I[Concatenate\n243-dim feature vector]
+
+    subgraph AUG ["🔁 Data Augmentation  ×3"]
+        J[Additive Gaussian Noise\nσ = 0.005]
+        K[Time Shift\n+0.5 seconds]
+        L[Pitch Shift\n+2 semitones]
+    end
+
+    I --> AUG
+    AUG --> M[Training Set\n8,000 samples]
+
+    subgraph MODEL ["🧠 Model Pipeline"]
+        N[RobustScaler] --> O
+        O[HistGradientBoostingClassifier\nmax_iter=300 · lr=0.05\nmax_depth=6 · class_weight=balanced]
+    end
+
+    M --> MODEL
+    I --> |Submission clips| MODEL
+    O --> P[🏷️ Predicted Label\n50 classes]
+```
+
+---
+
 ## Results
 
 | Split | Accuracy | Macro-F1 |
@@ -121,6 +164,18 @@ RobustScaler → HistGradientBoostingClassifier(max_iter=300, lr=0.05, max_depth
 | v1 | Trim + HPF + peak norm | MFCC-40 + deltas | RandomForest | No | — | — | Incorrect cell run order; augmentation cell ran after training |
 | v2 | Trim + HPF + peak norm | MFCC-40 + deltas + log-mel + spectral | Stacking (ET + XGB + SVC) | Yes (3×) | — | — | Severe class bias (`rain` predicted 134/1200 times); too slow for Colab |
 | v3 | Trim + HPF + peak norm | MFCC-40 + deltas + log-mel + spectral | HistGradientBoostingClassifier | Yes (3×) | **0.87** | **0.886** | Final model; correct cell run order |
+
+**Validation accuracy progression:**
+
+```mermaid
+xychart-beta
+    title "Macro-F1 Score by Experiment Run"
+    x-axis ["Baseline", "v1 (HPF + RF)", "v2 (Stacking)", "v3 Final (HGB)"]
+    y-axis "Macro-F1" 0 --> 1
+    bar [0.40, 0.00, 0.00, 0.886]
+```
+
+> v1 and v2 scores were not recorded due to incorrect cell run order and class bias respectively. Final model (v3) achieved **Macro-F1: 0.886**.
 
 **Key observations:**
 - The jump from Baseline to v3 demonstrates that CMVN, robust pooling, augmentation, and a non-linear classifier collectively produce the largest gains.
